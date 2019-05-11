@@ -13,7 +13,11 @@ import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
+import com.letter.utils.NotifyData;
+import com.letter.utils.NotifyDataUtil;
+
 import java.util.Calendar;
+import java.util.Random;
 
 import static java.lang.Thread.interrupted;
 import static java.lang.Thread.sleep;
@@ -95,6 +99,8 @@ public class CoreService extends Service {
         AlarmManager alarmManager = (AlarmManager)getSystemService(ALARM_SERVICE);
         alarmManager.set(AlarmManager.RTC_WAKEUP, getNextAlarm().getTimeInMillis(), pendingIntent);
 
+        NotifyDataUtil.getNotifyData("https://raw.githubusercontent.com/NevermindZZT/Thirsty/master/notify.json");
+
         return START_STICKY;
 
 //        return super.onStartCommand(intent, flags, startId);
@@ -140,13 +146,23 @@ public class CoreService extends Service {
     }
 
     private void thirstyNotify() {
+        String notifyContent = getString(R.string.notification_content_text);
+        NotifyData notifyData = ThirstyApplication.getNotifyData();
+
+        if (notifyData != null) {
+            Random random = new Random();
+            int num = random.nextInt(notifyData.getNotifyList().size()) % (notifyData.getNotifyList().size() + 1);
+            notifyContent = notifyData.getNotifyList().get(num).getData();
+        }
+
+        final String content = notifyContent;
         new Thread(new Runnable() {
             @Override
             public void run() {
                 Notification notification = new Notification.Builder(getApplicationContext(),
                         getString(R.string.notification_channel_id_notify))
                         .setContentTitle(getString(R.string.notification_content_title))
-                        .setContentText(getString(R.string.notification_content_text))
+                        .setContentText(content)
                         .setSmallIcon(R.mipmap.ic_water)
                         .setWhen(System.currentTimeMillis())
                         .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher_round))

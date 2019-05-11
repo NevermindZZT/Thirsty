@@ -1,6 +1,13 @@
 {
-    "notify":[
-        "斯人若彩虹，遇上方知有",
-        "love you three thousands"
+    "notify": [
+        {
+            "data": "斯人若彩虹，遇上方知有"
+        },
+        {
+            "data": "love you three thousands"
+        },
+        {
+            "data": "love you three thousands"
+        }
     ]
 }
