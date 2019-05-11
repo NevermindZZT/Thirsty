@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Thirsty</string>
+
+    <string name="notification_channel_id_app">app</string>
+    <string name="notification_channel_name_app">应用前台通知</string>
+    <string name="notification_channel_id_notify">thirsty</string>
+    <string name="notification_channel_name_notify">喝水提醒通知</string>
+    
+    <string name="notification_content_app_title">Thirsty</string>
+    <string name="notification_content_app_text">喝水提醒</string>
+    
+    <string name="notification_content_title">渴了</string>
+    <string name="notification_content_text">该喝水啦</string>
+</resources>
