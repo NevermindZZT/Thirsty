@@ -2,7 +2,6 @@ package com.letter.thirsty;
 
 import android.annotation.TargetApi;
 import android.app.AlarmManager;
-import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -11,6 +10,8 @@ import android.content.Intent;
 import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.os.IBinder;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.app.NotificationManagerCompat;
 import android.util.Log;
 
 import com.letter.utils.NotifyData;
@@ -19,8 +20,8 @@ import com.letter.utils.NotifyDataUtil;
 import java.util.Calendar;
 import java.util.Random;
 
-import static java.lang.Thread.interrupted;
-import static java.lang.Thread.sleep;
+import static android.app.PendingIntent.FLAG_UPDATE_CURRENT;
+
 
 public class CoreService extends Service {
 
@@ -28,13 +29,19 @@ public class CoreService extends Service {
 
     private static final int[] DRINK_HOUR = {6, 8, 11, 12, 15, 17, 22};
     private static final int[] DRINK_MINUTE = {30, 30, 0, 50, 0, 30, 0};
-    private static final long MILLIS_AN_HOUR = 60 * 60 * 1000;
+    private static final long MILLIS_A_MINUTE = 60 * 1000;
+    private static final long MILLIS_AN_HOUR = 60 * MILLIS_A_MINUTE;
     private static final long MILLIS_A_DAY = 24 * MILLIS_AN_HOUR;
 
     private static final int APP_DESK_ID = 1;
     private static final int NOTIFY_ID = 2;
 
     private static final String INTENT_KEY = "notify";
+
+    private static final int NOTIFY_NONE = 0;
+    private static final int NOTIFY_NEW = 1;
+    private static final int NOTIFY_DELAY = 2;
+    private static final int NOTIFY_DONE = 3;
 
     public CoreService() {
     }
@@ -65,9 +72,6 @@ public class CoreService extends Service {
 
         stopForeground(true);
 
-//        Intent intent = new Intent(getApplicationContext(), CoreService.class);
-//        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-//        startService(intent);
     }
 
     @Override
@@ -78,26 +82,44 @@ public class CoreService extends Service {
         Intent notifyIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent1 = PendingIntent.getActivity(this, 0, notifyIntent, 0);
 
-        Notification notification = new Notification.Builder(this, getString(R.string.notification_channel_id_app))
+        NotificationCompat.Builder notification = new NotificationCompat.Builder(this, getString(R.string.notification_channel_id_app))
                 .setContentTitle(getString(R.string.notification_content_app_title))
                 .setContentText(getString(R.string.notification_content_app_text))
-                .setSmallIcon(R.mipmap.ic_water)
+                .setSmallIcon(R.mipmap.ic_notify)
                 .setWhen(System.currentTimeMillis())
-                .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher_round))
-                .setContentIntent(pendingIntent1)
-                .build();
-        startForeground(APP_DESK_ID, notification);
+                .setContentIntent(pendingIntent1);
+        startForeground(APP_DESK_ID, notification.build());
 
-        if (intent != null
-                && intent.getIntExtra(INTENT_KEY, 0) == 1) {
-            thirstyNotify();
+        int type = NOTIFY_DONE;
+
+        if (intent != null) {
+            type = intent.getIntExtra(INTENT_KEY, NOTIFY_NONE);
+            NotificationManagerCompat manager = NotificationManagerCompat.from(getApplicationContext());
+            Log.d(TAG, "intent: " + type);
+            switch (type) {
+                case NOTIFY_NEW:
+                    thirstyNotify();
+                    break;
+                case NOTIFY_DELAY:
+                    manager.cancel(NOTIFY_ID);
+                    break;
+                case NOTIFY_DONE:
+                    manager.cancel(NOTIFY_ID);
+                    break;
+                default:
+                    break;
+            }
         }
 
         Intent intent1 = new Intent(getApplicationContext(), CoreService.class);
-        intent1.putExtra(INTENT_KEY, 1);
-        PendingIntent pendingIntent = PendingIntent.getService(getApplicationContext(), 0, intent1, 0);
+        intent1.putExtra(INTENT_KEY, NOTIFY_NEW);
+        PendingIntent pendingIntent = PendingIntent.getService(getApplicationContext(), 0, intent1, FLAG_UPDATE_CURRENT);
         AlarmManager alarmManager = (AlarmManager)getSystemService(ALARM_SERVICE);
-        alarmManager.set(AlarmManager.RTC_WAKEUP, getNextAlarm().getTimeInMillis(), pendingIntent);
+        if (type == NOTIFY_DELAY) {
+            alarmManager.set(AlarmManager.RTC_WAKEUP, Calendar.getInstance().getTimeInMillis() + 5 * MILLIS_A_MINUTE, pendingIntent);
+        } else {
+            alarmManager.set(AlarmManager.RTC_WAKEUP, getNextAlarm().getTimeInMillis(), pendingIntent);
+        }
 
         NotifyDataUtil.getNotifyData("https://raw.githubusercontent.com/NevermindZZT/Thirsty/master/notify.json");
 
@@ -145,6 +167,11 @@ public class CoreService extends Service {
         return calendar;
     }
 
+    private String getCurrentTime() {
+        Calendar calendar = Calendar.getInstance();
+        return calendar.get(Calendar.HOUR_OF_DAY) + ":" + calendar.get(Calendar.MINUTE);
+    }
+
     private void thirstyNotify() {
         String notifyContent = getString(R.string.notification_content_text);
         NotifyData notifyData = ThirstyApplication.getNotifyData();
@@ -155,22 +182,33 @@ public class CoreService extends Service {
             notifyContent = notifyData.getNotifyList().get(num).getData();
         }
 
+        final String title = getString(R.string.notification_content_title) + "  " + getCurrentTime();
         final String content = notifyContent;
         new Thread(new Runnable() {
             @Override
             public void run() {
-                Notification notification = new Notification.Builder(getApplicationContext(),
-                        getString(R.string.notification_channel_id_notify))
-                        .setContentTitle(getString(R.string.notification_content_title))
-                        .setContentText(content)
-                        .setSmallIcon(R.mipmap.ic_water)
-                        .setWhen(System.currentTimeMillis())
-                        .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher_round))
-                        .setAutoCancel(true)
-                        .build();
 
-                NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-                manager.notify(NOTIFY_ID, notification);
+                Intent delayIntent = new Intent(getApplicationContext(), CoreService.class);
+                delayIntent.putExtra(INTENT_KEY, NOTIFY_DELAY);
+                PendingIntent delayPI = PendingIntent.getService(getApplicationContext(), NOTIFY_DELAY, delayIntent, FLAG_UPDATE_CURRENT);
+
+                Intent doneIntent = new Intent(getApplicationContext(), CoreService.class);
+                doneIntent.putExtra(INTENT_KEY, NOTIFY_DONE);
+                PendingIntent donePI = PendingIntent.getService(getApplicationContext(), NOTIFY_DONE, doneIntent, FLAG_UPDATE_CURRENT);
+
+                NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext(),
+                        getString(R.string.notification_channel_id_notify))
+                        .setContentTitle(title)
+                        .setContentText(content)
+                        .setSmallIcon(R.mipmap.ic_notify)
+                        .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_juice))
+                        .setWhen(System.currentTimeMillis())
+                        .setAutoCancel(true)
+                        .addAction(R.drawable.bg_notify_button, getString(R.string.notification_delay_button), delayPI)
+                        .addAction(R.drawable.bg_notify_button, getString(R.string.notification_done_button), donePI);
+
+                NotificationManagerCompat manager = NotificationManagerCompat.from(getApplicationContext());
+                manager.notify(NOTIFY_ID, builder.build());
             }
         }).start();
     }
