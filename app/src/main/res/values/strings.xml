@@ -8,9 +8,6 @@
     
     <string name="notification_content_app_title">Thirsty</string>
     <string name="notification_content_app_text">喝水提醒</string>
-    
-    <string name="notification_content_title">该喝水啦</string>
-    <string name="notification_content_text">我可以不吃饭，但是一定要多喝水</string>
 
     <string name="notification_delay_button">一会提醒</string>
     <string name="notification_done_button">已经喝了</string>

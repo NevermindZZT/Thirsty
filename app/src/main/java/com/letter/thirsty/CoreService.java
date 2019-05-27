@@ -10,38 +10,61 @@ import android.content.Intent;
 import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.os.IBinder;
+import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationManagerCompat;
 import android.util.Log;
 
-import com.letter.utils.NotifyData;
-import com.letter.utils.NotifyDataUtil;
+import com.google.gson.Gson;
+import com.letter.utils.Notify;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.Calendar;
 import java.util.Random;
 
+import okhttp3.Call;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+
 import static android.app.PendingIntent.FLAG_UPDATE_CURRENT;
 
-
+/**
+ * 核心服务
+ * @author Letter(NevermindZZT@gmail.com)
+ * @version 1.0
+ */
 public class CoreService extends Service {
 
     private static final String TAG = "CoreService";
 
-    private static final int[] DRINK_HOUR = {6, 8, 11, 12, 15, 17, 22};
-    private static final int[] DRINK_MINUTE = {30, 30, 0, 50, 0, 30, 0};
     private static final long MILLIS_A_MINUTE = 60 * 1000;
     private static final long MILLIS_AN_HOUR = 60 * MILLIS_A_MINUTE;
     private static final long MILLIS_A_DAY = 24 * MILLIS_AN_HOUR;
 
-    private static final int APP_DESK_ID = 1;
+    private static final int APP_DESK_ID = -1;
     private static final int NOTIFY_ID = 2;
 
     private static final String INTENT_KEY = "notify";
+    private static final String INTENT_ID = "alarm_id";
+    private static final String INTENT_TITLE = "title";
+    private static final String INTENT_CONTENT = "content";
 
     private static final int NOTIFY_NONE = 0;
     private static final int NOTIFY_NEW = 1;
     private static final int NOTIFY_DELAY = 2;
     private static final int NOTIFY_DONE = 3;
+    private static final int NOTIFY_REFRESH = 4;
+
+    private static final int REQUEST_RETRY = -1;
+    private static final int REQUEST_DELAY = -2;
+    private static final int REQUEST_DONE = -3;
+    private static final int REQUEST_DELAY_NOTIFY = -4;
+
+    private static final String NOTIFY_URL = "http://192.168.91.222:8080/esp-upgrade/notify.json";
 
     public CoreService() {
     }
@@ -58,11 +81,12 @@ public class CoreService extends Service {
 
         createNotificationChannel(getString(R.string.notification_channel_id_app),
                 getString(R.string.notification_channel_name_app),
-                NotificationManager.IMPORTANCE_LOW);
+                NotificationManager.IMPORTANCE_MIN);
         createNotificationChannel(getString(R.string.notification_channel_id_notify),
                 getString(R.string.notification_channel_name_notify),
-                NotificationManager.IMPORTANCE_HIGH);
+                NotificationManager.IMPORTANCE_MAX);
 
+        getNotify(NOTIFY_URL);
     }
 
     @Override
@@ -78,7 +102,6 @@ public class CoreService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.d(TAG, "onStartCommand");
 
-
         Intent notifyIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent1 = PendingIntent.getActivity(this, 0, notifyIntent, 0);
 
@@ -90,38 +113,32 @@ public class CoreService extends Service {
                 .setContentIntent(pendingIntent1);
         startForeground(APP_DESK_ID, notification.build());
 
-        int type = NOTIFY_DONE;
-
         if (intent != null) {
-            type = intent.getIntExtra(INTENT_KEY, NOTIFY_NONE);
+            int type = intent.getIntExtra(INTENT_KEY, NOTIFY_NONE);
             NotificationManagerCompat manager = NotificationManagerCompat.from(getApplicationContext());
             Log.d(TAG, "intent: " + type);
             switch (type) {
                 case NOTIFY_NEW:
-                    thirstyNotify();
+//                    thirstyNotify();
+                    setThristyNotify(intent.getStringExtra(INTENT_TITLE), intent.getStringExtra(INTENT_CONTENT));
                     break;
                 case NOTIFY_DELAY:
                     manager.cancel(NOTIFY_ID);
+                    setDelayAlarm(intent.getStringExtra(INTENT_TITLE),
+                            intent.getStringExtra(INTENT_CONTENT));
                     break;
                 case NOTIFY_DONE:
                     manager.cancel(NOTIFY_ID);
+                    break;
+                case NOTIFY_REFRESH:
+                    getNotify(NOTIFY_URL);
                     break;
                 default:
                     break;
             }
         }
 
-        Intent intent1 = new Intent(getApplicationContext(), CoreService.class);
-        intent1.putExtra(INTENT_KEY, NOTIFY_NEW);
-        PendingIntent pendingIntent = PendingIntent.getService(getApplicationContext(), 0, intent1, FLAG_UPDATE_CURRENT);
-        AlarmManager alarmManager = (AlarmManager)getSystemService(ALARM_SERVICE);
-        if (type == NOTIFY_DELAY) {
-            alarmManager.set(AlarmManager.RTC_WAKEUP, Calendar.getInstance().getTimeInMillis() + 5 * MILLIS_A_MINUTE, pendingIntent);
-        } else {
-            alarmManager.set(AlarmManager.RTC_WAKEUP, getNextAlarm().getTimeInMillis(), pendingIntent);
-        }
-
-        NotifyDataUtil.getNotifyData("https://raw.githubusercontent.com/NevermindZZT/Thirsty/master/notify.json");
+        setNotifyAlarm();
 
         return START_STICKY;
 
@@ -136,80 +153,198 @@ public class CoreService extends Service {
         notificationManager.createNotificationChannel(channel);
     }
 
-    private Calendar getNextAlarm() {
+    /**
+     * 获取基础时间戳(当天0点时间戳)
+     * @return 时间戳
+     */
+    private long getBaseTimeMillis() {
         Calendar calendar = Calendar.getInstance();
-        calendar.setTimeInMillis(calendar.getTimeInMillis() + 0 * MILLIS_AN_HOUR);
-        if (calendar.get(Calendar.HOUR_OF_DAY) > DRINK_HOUR[DRINK_HOUR.length - 1]
-                || (calendar.get(Calendar.HOUR_OF_DAY) == DRINK_HOUR[DRINK_HOUR.length - 1]
-                && calendar.get(Calendar.MINUTE) >= DRINK_MINUTE[DRINK_MINUTE.length - 1])) {
-            calendar.setTimeInMillis(calendar.getTimeInMillis() + MILLIS_A_DAY);
-            calendar.set(Calendar.HOUR_OF_DAY, DRINK_HOUR[0]);
-            calendar.set(Calendar.MINUTE, DRINK_MINUTE[0]);
-        } else {
-            for (int i = 0; i < DRINK_HOUR.length; i++) {
-                if (calendar.get(Calendar.HOUR_OF_DAY) < DRINK_HOUR[i]
-                        || (calendar.get(Calendar.HOUR_OF_DAY) == DRINK_HOUR[i]
-                        && calendar.get(Calendar.MINUTE) < DRINK_MINUTE[i])) {
-                    calendar.set(Calendar.HOUR_OF_DAY, DRINK_HOUR[i]);
-                    calendar.set(Calendar.MINUTE, DRINK_MINUTE[i]);
-                    break;
-                }
-            }
-        }
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
         calendar.set(Calendar.SECOND, 0);
         calendar.set(Calendar.MILLISECOND, 0);
-        Log.d("CoreService", "onStartCommand: " + calendar.get(Calendar.YEAR) + "-"
-                + (calendar.get(Calendar.MONTH) + 1) + "-"
-                + calendar.get(Calendar.DAY_OF_MONTH) + " "
-                + calendar.get(Calendar.HOUR_OF_DAY) + ":"
-                + calendar.get(Calendar.MINUTE));
-        calendar.setTimeInMillis(calendar.getTimeInMillis() - 0 * MILLIS_AN_HOUR);
-        return calendar;
+        return calendar.getTimeInMillis();
     }
 
-    private String getCurrentTime() {
-        Calendar calendar = Calendar.getInstance();
-        return calendar.get(Calendar.HOUR_OF_DAY) + ":" + calendar.get(Calendar.MINUTE);
+    /**
+     * 读取Assets目录下文件文本
+     * @param fileName 文件名
+     * @return 文件文本
+     */
+    private String getAssetsText(String fileName) {
+        StringBuilder buffer = new StringBuilder();
+        try {
+            InputStream inputStream = getAssets().open(fileName);
+            BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStream));
+            String string;
+            while ((string = bufferedReader.readLine()) != null) {
+                buffer.append(string);
+                buffer.append("\n");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "", e);
+        }
+        return buffer.toString();
     }
 
-    private void thirstyNotify() {
-        String notifyContent = getString(R.string.notification_content_text);
-        NotifyData notifyData = ThirstyApplication.getNotifyData();
+    /**
+     * 获取通知数据
+     * @param url 请求链接
+     */
+    private void getNotify(String url) {
+        OkHttpClient client = new OkHttpClient();
+        Request request = new Request.Builder()
+                .url(url)
+                .build();
+        client.newCall(request).enqueue(new okhttp3.Callback() {
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                Gson gson = new Gson();
+                try {
+                    Notify notify = gson.fromJson(response.body().string(), Notify.class);
+                    Log.d(TAG, response.body().string());
+                    if (notify != null) {
+                        ThirstyApplication.setNotify(notify);
+                        setNotifyAlarm();
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "", e);
+                }
+            }
 
-        if (notifyData != null) {
-            Random random = new Random();
-            int num = random.nextInt(notifyData.getNotifyList().size()) % (notifyData.getNotifyList().size() + 1);
-            notifyContent = notifyData.getNotifyList().get(num).getData();
+            @Override
+            public void onFailure(Call call, IOException e) {
+                Gson gson = new Gson();
+                try {
+                    String content = getAssetsText("notify.json");
+//                    Log.d(TAG, "read file: " + content);
+                    if (!content.equals("")) {
+                        Notify notify = gson.fromJson(content, Notify.class);
+                        if (notify != null) {
+                            ThirstyApplication.setNotify(notify);
+                            Log.d(TAG, "set notify:" + notify.getNotify().size());
+                        }
+                    } else {
+                        Log.e(TAG, "read file error");
+                    }
+                } catch (Exception e1) {
+                    Log.e(TAG, "", e1);
+                }
+            }
+        });
+    }
+
+    /**
+     * 显示通知
+     * @param title 通知标题
+     * @param content 通知内容
+     */
+    private void setThristyNotify(String title, String content) {
+        Intent delayIntent = new Intent(getApplicationContext(), CoreService.class);
+        delayIntent.putExtra(INTENT_KEY, NOTIFY_DELAY);
+        delayIntent.putExtra(INTENT_TITLE, title);
+        delayIntent.putExtra(INTENT_CONTENT, content);
+        PendingIntent delayPI = PendingIntent.getService(getApplicationContext(), REQUEST_DELAY,
+                delayIntent, FLAG_UPDATE_CURRENT);
+
+        Intent doneIntent = new Intent(getApplicationContext(), CoreService.class);
+        doneIntent.putExtra(INTENT_KEY, NOTIFY_DONE);
+        doneIntent.putExtra(INTENT_TITLE, title);
+        doneIntent.putExtra(INTENT_CONTENT, content);
+        PendingIntent donePI = PendingIntent.getService(getApplicationContext(), REQUEST_DONE,
+                doneIntent, FLAG_UPDATE_CURRENT);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext(),
+                getString(R.string.notification_channel_id_notify))
+                .setContentTitle(title)
+                .setContentText(content)
+                .setSmallIcon(R.mipmap.ic_notify)
+                .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_juice))
+                .setWhen(System.currentTimeMillis())
+                .setAutoCancel(true)
+                .addAction(R.drawable.bg_notify_button, getString(R.string.notification_delay_button), delayPI)
+                .addAction(R.drawable.bg_notify_button, getString(R.string.notification_done_button), donePI);
+
+        NotificationManagerCompat manager = NotificationManagerCompat.from(getApplicationContext());
+        manager.notify(NOTIFY_ID, builder.build());
+    }
+
+    /**
+     * 设置Alarm
+     * @param alarmId id
+     * @param type 类型
+     * @param title 标题
+     * @param content 内容
+     * @param time 时间
+     */
+    private void setAlarm(int alarmId, int type, @Nullable String title, @Nullable String content, long time) {
+        Intent intent = new Intent(getApplicationContext(), CoreService.class);
+        intent.putExtra(INTENT_KEY, type);
+        if (title != null) {
+            intent.putExtra(INTENT_TITLE, title);
+        }
+        if (content != null) {
+            intent.putExtra(INTENT_CONTENT, content);
+        }
+        intent.putExtra(INTENT_ID, alarmId);
+        PendingIntent pendingIntent = PendingIntent.getService(getApplicationContext(), alarmId,
+                intent, FLAG_UPDATE_CURRENT);
+        AlarmManager alarmManager = (AlarmManager)getSystemService(ALARM_SERVICE);
+        alarmManager.set(AlarmManager.RTC_WAKEUP, time, pendingIntent);
+    }
+
+    /**
+     * 设置通知Alarm
+     */
+    private void setNotifyAlarm() {
+        Notify notify = ThirstyApplication.getNotify();
+
+        if (Calendar.getInstance().getTimeInMillis() < getBaseTimeMillis() + 12 * MILLIS_AN_HOUR) {
+            setAlarm(-1, NOTIFY_REFRESH, null, null,
+                    getBaseTimeMillis() + 12 * MILLIS_AN_HOUR);
+        } else {
+            setAlarm(-1, NOTIFY_REFRESH, null, null,
+                    getBaseTimeMillis() + MILLIS_A_DAY);
         }
 
-        final String title = getString(R.string.notification_content_title) + "  " + getCurrentTime();
-        final String content = notifyContent;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
+        if (notify == null || notify.getNotify().size() == 0) {
+            Intent intent = new Intent(getApplicationContext(), CoreService.class);
+            PendingIntent pendingIntent = PendingIntent.getService(getApplicationContext(), REQUEST_RETRY,
+                    intent, FLAG_UPDATE_CURRENT);
+            AlarmManager alarmManager = (AlarmManager)getSystemService(ALARM_SERVICE);
+            long time = Calendar.getInstance().getTimeInMillis() + 1000 * 10;
+            alarmManager.set(AlarmManager.RTC_WAKEUP, time, pendingIntent);
+            return;
+        }
 
-                Intent delayIntent = new Intent(getApplicationContext(), CoreService.class);
-                delayIntent.putExtra(INTENT_KEY, NOTIFY_DELAY);
-                PendingIntent delayPI = PendingIntent.getService(getApplicationContext(), NOTIFY_DELAY, delayIntent, FLAG_UPDATE_CURRENT);
+        Random random = new Random();
+        int size = notify.getNotify().size();
 
-                Intent doneIntent = new Intent(getApplicationContext(), CoreService.class);
-                doneIntent.putExtra(INTENT_KEY, NOTIFY_DONE);
-                PendingIntent donePI = PendingIntent.getService(getApplicationContext(), NOTIFY_DONE, doneIntent, FLAG_UPDATE_CURRENT);
+        for (int i = 0; i < size; i++) {
+            if (notify.getNotify().get(i).getTime() < 0) {
 
-                NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext(),
-                        getString(R.string.notification_channel_id_notify))
-                        .setContentTitle(title)
-                        .setContentText(content)
-                        .setSmallIcon(R.mipmap.ic_notify)
-                        .setLargeIcon(BitmapFactory.decodeResource(getResources(), R.mipmap.ic_juice))
-                        .setWhen(System.currentTimeMillis())
-                        .setAutoCancel(true)
-                        .addAction(R.drawable.bg_notify_button, getString(R.string.notification_delay_button), delayPI)
-                        .addAction(R.drawable.bg_notify_button, getString(R.string.notification_done_button), donePI);
+            } else {
+                String title = notify.getNotify().get(i).getTitle();
+                int contentNum = notify.getNotify().get(i).getContent().size();
+                int contentIndex = random.nextInt(contentNum) % (contentNum + 1);
+                String content = notify.getNotify().get(i).getContent().get(contentIndex);
 
-                NotificationManagerCompat manager = NotificationManagerCompat.from(getApplicationContext());
-                manager.notify(NOTIFY_ID, builder.build());
+                long time = getBaseTimeMillis() + notify.getNotify().get(i).getTime();
+                if (time < Calendar.getInstance().getTimeInMillis()) {
+                    time += MILLIS_A_DAY;
+                }
+                setAlarm(i, NOTIFY_NEW, title, content, time);
             }
-        }).start();
+        }
+    }
+
+    /**
+     * 设置延迟提醒闹钟
+     * @param title 标题
+     * @param content 内容
+     */
+    private void setDelayAlarm(String title, String content) {
+        long time = Calendar.getInstance().getTimeInMillis() + 5 * MILLIS_A_MINUTE;
+        setAlarm(REQUEST_DELAY_NOTIFY, NOTIFY_NEW, title, content, time);
     }
 }

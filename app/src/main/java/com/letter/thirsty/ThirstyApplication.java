@@ -3,11 +3,11 @@ package com.letter.thirsty;
 import android.app.Application;
 import android.content.Intent;
 
-import com.letter.utils.NotifyData;
+import com.letter.utils.Notify;
 
 public class ThirstyApplication extends Application {
 
-    private static NotifyData notifyData;
+    private static Notify notify;
 
     @Override
     public void onCreate() {
@@ -16,11 +16,11 @@ public class ThirstyApplication extends Application {
         startService(intent);
     }
 
-    public static NotifyData getNotifyData() {
-        return notifyData;
+    public static Notify getNotify() {
+        return notify;
     }
 
-    public static void setNotifyData(NotifyData notifyData) {
-        ThirstyApplication.notifyData = notifyData;
+    public static void setNotify(Notify notify) {
+        ThirstyApplication.notify = notify;
     }
 }
