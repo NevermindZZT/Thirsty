@@ -64,7 +64,7 @@ public class CoreService extends Service {
     private static final int REQUEST_DONE = -3;
     private static final int REQUEST_DELAY_NOTIFY = -4;
 
-    private static final String NOTIFY_URL = "http://192.168.91.222:8080/esp-upgrade/notify.json";
+    private static final String NOTIFY_URL = "https://raw.githubusercontent.com/NevermindZZT/Thirsty/master/notify_new.json";
 
     public CoreService() {
     }
@@ -202,7 +202,7 @@ public class CoreService extends Service {
                 Gson gson = new Gson();
                 try {
                     Notify notify = gson.fromJson(response.body().string(), Notify.class);
-                    Log.d(TAG, response.body().string());
+//                    Log.d(TAG, response.body().string());
                     if (notify != null) {
                         ThirstyApplication.setNotify(notify);
                         setNotifyAlarm();
