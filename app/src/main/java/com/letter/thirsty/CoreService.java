@@ -201,8 +201,9 @@ public class CoreService extends Service {
             public void onResponse(Call call, Response response) throws IOException {
                 Gson gson = new Gson();
                 try {
-                    Notify notify = gson.fromJson(response.body().string(), Notify.class);
-//                    Log.d(TAG, response.body().string());
+                    String content = response.body().string();
+//                    Log.d(TAG, content);
+                    Notify notify = gson.fromJson(content, Notify.class);
                     if (notify != null) {
                         ThirstyApplication.setNotify(notify);
                         setNotifyAlarm();
